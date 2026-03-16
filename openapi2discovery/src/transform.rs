@@ -2,6 +2,7 @@ use crate::discovery::*;
 use crate::resolver::{ref_name, RefResolver};
 use crate::tree::{ends_with_param, parse_segments, resource_chain, Segment};
 use openapiv3::*;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// Convert an OpenAPI spec into a Discovery Document.
@@ -24,9 +25,12 @@ pub fn transform(
         .map(|s| s.url.clone())
         .unwrap_or_default();
 
+    let id = format!("{name}:{version}");
+
     DiscoveryDocument {
         kind: "discovery#restDescription".into(),
         discovery_version: "v1".into(),
+        id,
         title: spec.info.title.clone(),
         description: spec.info.description.clone(),
         protocol: "rest".into(),
@@ -51,7 +55,7 @@ fn slugify(s: &str) -> String {
 // Schemas
 // ---------------------------------------------------------------------------
 
-fn lift_schemas(spec: &OpenAPI) -> BTreeMap<String, serde_json::Value> {
+fn lift_schemas(spec: &OpenAPI) -> BTreeMap<String, Value> {
     let Some(components) = &spec.components else {
         return BTreeMap::new();
     };
@@ -61,29 +65,107 @@ fn lift_schemas(spec: &OpenAPI) -> BTreeMap<String, serde_json::Value> {
         .iter()
         .map(|(name, schema)| {
             let val = serde_json::to_value(schema).unwrap_or_default();
-            (name.clone(), simplify_refs(val))
+            let mut cleaned = to_discovery_schema(val);
+            if let Value::Object(ref mut m) = cleaned {
+                m.insert("id".into(), Value::String(name.clone()));
+            }
+            (name.clone(), cleaned)
         })
         .collect()
 }
 
-/// Recursively rewrite `"$ref": "#/components/schemas/Foo"` → `"$ref": "Foo"`.
-fn simplify_refs(value: serde_json::Value) -> serde_json::Value {
+/// Keys that exist in OpenAPI schemas but not in Google Discovery schemas.
+///
+/// Note: `oneOf`, `anyOf`, and `allOf` are also handled above for the
+/// single-variant/nullable case — this list acts as the fallthrough that
+/// strips them when they could not be flattened (e.g. multi-variant unions).
+const OPENAPI_ONLY_KEYS: &[&str] = &[
+    "required",
+    "nullable",
+    "oneOf",
+    "anyOf",
+    "allOf",
+    "additionalProperties",
+    "discriminator",
+    "readOnly",
+    "writeOnly",
+    "xml",
+    "externalDocs",
+    "example",
+    "deprecated",
+    "minLength",
+    "maxLength",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "pattern",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "minProperties",
+    "maxProperties",
+];
+
+/// Recursively convert an OpenAPI-style schema JSON value into Discovery format:
+///  - Simplify `$ref` paths
+///  - Strip OpenAPI-only keys
+///  - Flatten `oneOf`/`anyOf`/`allOf` nullable patterns to a plain `$ref`
+fn to_discovery_schema(value: Value) -> Value {
     match value {
-        serde_json::Value::Object(mut map) => {
-            if let Some(serde_json::Value::String(r)) = map.get("$ref") {
-                if let Some(name) = r.strip_prefix("#/components/schemas/") {
-                    map.insert("$ref".into(), serde_json::Value::String(name.into()));
+        Value::Object(mut map) => {
+            // --- flatten oneOf/anyOf nullable → $ref ---
+            for key in &["oneOf", "anyOf"] {
+                if let Some(arr) = map.get(*key).and_then(|v| v.as_array()) {
+                    let refs: Vec<&Value> = arr
+                        .iter()
+                        .filter(|v| v.get("type").and_then(|t| t.as_str()) != Some("null"))
+                        .collect();
+                    if refs.len() == 1 {
+                        let replacement = refs[0].clone();
+                        map.remove(*key);
+                        if let Value::Object(inner) = replacement {
+                            for (k, v) in inner {
+                                map.insert(k, v);
+                            }
+                        }
+                    }
                 }
             }
-            serde_json::Value::Object(
+
+            // --- flatten allOf with single entry ---
+            if let Some(arr) = map.get("allOf").and_then(|v| v.as_array()) {
+                if arr.len() == 1 {
+                    let replacement = arr[0].clone();
+                    map.remove("allOf");
+                    if let Value::Object(inner) = replacement {
+                        for (k, v) in inner {
+                            map.entry(k).or_insert(v);
+                        }
+                    }
+                }
+            }
+
+            // --- simplify $ref paths ---
+            if let Some(Value::String(r)) = map.get("$ref") {
+                if let Some(name) = r.strip_prefix("#/components/schemas/") {
+                    map.insert("$ref".into(), Value::String(name.into()));
+                }
+            }
+
+            // --- strip OpenAPI-only keys ---
+            for key in OPENAPI_ONLY_KEYS {
+                map.remove(*key);
+            }
+
+            // --- recurse into remaining values ---
+            Value::Object(
                 map.into_iter()
-                    .map(|(k, v)| (k, simplify_refs(v)))
+                    .map(|(k, v)| (k, to_discovery_schema(v)))
                     .collect(),
             )
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.into_iter().map(simplify_refs).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(to_discovery_schema).collect()),
         other => other,
     }
 }
@@ -371,8 +453,37 @@ mod tests {
         let input = serde_json::json!({
             "properties": { "owner": { "$ref": "#/components/schemas/User" } }
         });
-        let output = simplify_refs(input);
+        let output = to_discovery_schema(input);
         assert_eq!(output["properties"]["owner"]["$ref"], "User");
+    }
+
+    #[test]
+    fn strips_openapi_only_keys() {
+        let input = serde_json::json!({
+            "type": "object",
+            "required": ["name"],
+            "nullable": true,
+            "additionalProperties": { "type": "string" },
+            "properties": { "name": { "type": "string" } }
+        });
+        let output = to_discovery_schema(input);
+        assert!(output.get("required").is_none());
+        assert!(output.get("nullable").is_none());
+        assert!(output.get("additionalProperties").is_none());
+        assert_eq!(output["properties"]["name"]["type"], "string");
+    }
+
+    #[test]
+    fn flattens_oneof_nullable() {
+        let input = serde_json::json!({
+            "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/components/schemas/Foo" }
+            ]
+        });
+        let output = to_discovery_schema(input);
+        assert!(output.get("oneOf").is_none());
+        assert_eq!(output["$ref"], "Foo");
     }
 
     #[test]

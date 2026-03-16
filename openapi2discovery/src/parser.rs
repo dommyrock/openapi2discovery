@@ -25,19 +25,24 @@ pub fn parse_openapi(path: &str) -> Result<OpenAPI, Box<dyn std::error::Error>> 
 ///
 /// `"type": ["string", "null"]`  →  `"type": "string", "nullable": true`
 /// `"type": ["null", "integer"]` →  `"type": "integer", "nullable": true`
+///
+/// Multi-type unions without null (e.g. `["string", "integer"]`) are left
+/// untouched — `openapiv3` will reject them, which is the desired behaviour
+/// since OAS 3.0 has no union types.
 fn downgrade_oas31_types(value: &mut Value) {
     match value {
         Value::Object(map) => {
             if let Some(type_val) = map.get("type") {
                 if let Some(arr) = type_val.as_array() {
                     let types: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
-                    let non_null: Vec<&&str> = types.iter().filter(|t| **t != "null").collect();
+                    let non_null: Vec<&str> =
+                        types.iter().copied().filter(|t| *t != "null").collect();
                     let has_null = types.contains(&"null");
 
                     if non_null.len() == 1 {
-                        map.insert("type".to_string(), Value::String(non_null[0].to_string()));
+                        map.insert("type".into(), Value::String(non_null[0].into()));
                         if has_null {
-                            map.insert("nullable".to_string(), Value::Bool(true));
+                            map.insert("nullable".into(), Value::Bool(true));
                         }
                     }
                 }
@@ -52,5 +57,58 @@ fn downgrade_oas31_types(value: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn converts_nullable_string() {
+        let mut v = json!({"type": ["string", "null"]});
+        downgrade_oas31_types(&mut v);
+        assert_eq!(v["type"], "string");
+        assert_eq!(v["nullable"], true);
+    }
+
+    #[test]
+    fn converts_null_first_order() {
+        let mut v = json!({"type": ["null", "integer"]});
+        downgrade_oas31_types(&mut v);
+        assert_eq!(v["type"], "integer");
+        assert_eq!(v["nullable"], true);
+    }
+
+    #[test]
+    fn leaves_plain_type_string_unchanged() {
+        let mut v = json!({"type": "string"});
+        downgrade_oas31_types(&mut v);
+        assert_eq!(v["type"], "string");
+        assert!(v.get("nullable").is_none());
+    }
+
+    #[test]
+    fn leaves_multi_type_union_unchanged() {
+        let mut v = json!({"type": ["string", "integer"]});
+        downgrade_oas31_types(&mut v);
+        // Not a nullable pattern — left as-is for openapiv3 to reject
+        assert!(v["type"].is_array());
+    }
+
+    #[test]
+    fn recurses_into_nested_properties() {
+        let mut v = json!({
+            "properties": {
+                "name": { "type": ["string", "null"] },
+                "items": [{ "type": ["boolean", "null"] }]
+            }
+        });
+        downgrade_oas31_types(&mut v);
+        assert_eq!(v["properties"]["name"]["type"], "string");
+        assert_eq!(v["properties"]["name"]["nullable"], true);
+        assert_eq!(v["properties"]["items"][0]["type"], "boolean");
+        assert_eq!(v["properties"]["items"][0]["nullable"], true);
     }
 }

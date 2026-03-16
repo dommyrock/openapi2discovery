@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub struct DiscoveryDocument {
     pub kind: String,
     pub discovery_version: String,
+    pub id: String,
     pub name: String,
     pub version: String,
     pub title: String,
