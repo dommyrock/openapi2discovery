@@ -26,6 +26,18 @@
 | **P2** | **Response sanitization** | Filter API responses against prompt injection in embedded data |
 | **P2** | **MCP surface** | Expose same Discovery-driven methods as MCP tools over stdio |
 
+### Extras
+
+Items not in the core priority list above but needed for a production-quality agent-first CLI.
+
+| Priority | Feature | What it does |
+|----------|---------|--------------|
+| **P1** | **Authentication** | HTTP execution requires auth. At minimum `--bearer-token` flag and env var (`CLI_TOKEN`); extensible to OAuth2 flows, API keys, or mTLS later |
+| **P1** | **Output formatting (`--output json\|table\|csv`)** | Agents need `json` (default), humans need `table`. Distinct from `--json` which controls *input*. All output modes must write to stdout for piping |
+| **P1** | **Retry with backoff** | Retry on HTTP 429/5xx with exponential backoff respecting `Retry-After` headers. Essential for rate-limited APIs |
+| **P1** | **Structured error output** | Errors must be predictable JSON (`{"error": {"code": 404, "message": "..."}}`), not raw HTTP bodies. Agents need parseable errors to decide next steps |
+| **P2** | **Agent context file (`CONTEXT.md`)** | A single provider-agnostic document describing CLI syntax, rules, key flags, and usage patterns. Loaded into the agent's prompt at session start. Must work across Claude, Gemini, OpenAI Codex, and any other model — no provider-specific instructions or assumptions. The file should describe *what the CLI does and how to call it*, not *how a specific model should reason* |
+
 ## Reference implementation mapping (googleworkspace/cli)
 
 The [gws CLI](https://github.com/googleworkspace/cli) is a Rust/clap 4 binary that implements all of the above. Below is where each feature lives in that codebase.
@@ -122,3 +134,37 @@ The [gws CLI](https://github.com/googleworkspace/cli) is a Rust/clap 4 binary th
 | `CLAUDE.md` / `AGENTS.md` | Agent and contributor configuration |
 
 Note: `gws` does **not** implement MCP as an in-process server. Instead it relies on convention-based integration — structured JSON output, consistent error format, `--dry-run`, and skill files make it a natural fit for agent tool-use without implementing the MCP protocol directly.
+
+### Extras — Authentication
+
+| File | Role |
+|------|------|
+| `src/auth.rs` | `get_token(scopes)` acquires OAuth2 tokens via env vars, encrypted credential files, or Application Default Credentials |
+| `src/executor.rs` | Attaches bearer token to every outgoing request |
+
+### Extras — Output formatting
+
+| File | Role |
+|------|------|
+| `src/formatter.rs` | `format_value()` dispatches to JSON (compact), table, CSV, or YAML formatters based on `--output` flag; `format_value_paginated()` handles continuation pages per format |
+| `src/commands.rs` | Defines `--output` flag with allowed values |
+
+### Extras — Retry with backoff
+
+| File | Role |
+|------|------|
+| `src/client.rs` | `send_with_retry()` retries on HTTP 429 with exponential backoff (1s, 2s, 4s), respecting `Retry-After` headers |
+
+### Extras — Structured error output
+
+| File | Role |
+|------|------|
+| `src/executor.rs` | `handle_error_response()` parses Google API error JSON into a consistent shape; non-JSON errors are wrapped in the same structure |
+
+### Extras — Agent context file
+
+| File | Role |
+|------|------|
+| `CONTEXT.md` | The agent context document — rules, core syntax, key flags, field mask guidance, pagination patterns. In `gws` this is Gemini-specific; **our version must be provider-agnostic** (no model-specific reasoning instructions, no provider-specific tool-use syntax) |
+| `gemini-extension.json` | Registers the context file with Gemini CLI. We would need equivalent registration for Claude (`CLAUDE.md`), Codex (`.codex/`), and any other agent surface — or a single `CONTEXT.md` that all providers can consume |
+| `AGENTS.md` | Contributor-facing architecture and security guide (separate from the agent-facing context file) |
