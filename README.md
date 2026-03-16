@@ -21,17 +21,23 @@ The problem: Google's Discovery format is proprietary and only covers Google API
 cd openapi2discovery && cargo build --release
 
 # Basic usage
-openapi2discovery input.json -o discovery.json
+./target/release/openapi2discovery input.json -o discovery.json
 
 # Pretty print
-openapi2discovery input.json --pretty
+./target/release/openapi2discovery input.json --pretty
 
 # From stdin
-cat openapi.json | openapi2discovery - -o discovery.json
+cat openapi.json | ./target/release/openapi2discovery - -o discovery.json
 
 # Override service name/version
-openapi2discovery input.json --name my-api --version v2
+./target/release/openapi2discovery input.json --name my-api --version v2
 ```
+
+> **Tip:** Add the binary to your `PATH` to call it without the full path:
+> ```bash
+> export PATH="$PWD/target/release:$PATH"
+> openapi2discovery input.json -o discovery.json
+> ```
 
 ### Python script (quick prototyping)
 

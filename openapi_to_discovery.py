@@ -19,6 +19,20 @@ from typing import Any
 # Helpers
 # ---------------------------------------------------------------------------
 
+def normalize_type(schema: dict) -> str:
+    """Normalize OAS 3.1 type-arrays to a single type string.
+
+    ``"type": ["string", "null"]`` → returns ``"string"``
+    ``"type": "integer"``          → returns ``"integer"``
+    Missing ``"type"``             → returns ``"object"``
+    """
+    raw = schema.get("type", "object")
+    if isinstance(raw, list):
+        non_null = [t for t in raw if t != "null"]
+        return non_null[0] if non_null else "string"
+    return raw
+
+
 def slugify(text: str) -> str:
     """Turn a path segment like {fileId} → fileId, /v1/files → files."""
     return re.sub(r"[^a-zA-Z0-9_]", "", text)
@@ -47,10 +61,11 @@ def openapi_param_to_discovery(param: dict) -> tuple[str, dict]:
     """Convert a single OpenAPI parameter object to a Discovery parameter entry."""
     name = param.get("name", "unknown")
     schema = param.get("schema", {})
+    stype = normalize_type(schema)
     disc: dict[str, Any] = {
         "location": param.get("in", "query"),   # query | path | header
         "description": param.get("description", ""),
-        "type": schema.get("type", "string"),
+        "type": stype,
         "required": param.get("required", False),
     }
     if "enum" in schema:
@@ -58,7 +73,7 @@ def openapi_param_to_discovery(param: dict) -> tuple[str, dict]:
         disc["enumDescriptions"] = schema.get("x-enum-descriptions", [""] * len(schema["enum"]))
     if "default" in schema:
         disc["default"] = str(schema["default"])
-    if schema.get("type") == "array":
+    if stype == "array":
         disc["repeated"] = True
         items = schema.get("items", {})
         disc["type"] = items.get("type", "string")
@@ -82,7 +97,7 @@ def openapi_schema_to_discovery(schema: dict, openapi: dict, _depth=0) -> dict:
         ref_name = schema["$ref"].split("/")[-1]
         return {"$ref": ref_name}
 
-    stype = schema.get("type", "object")
+    stype = normalize_type(schema)
     disc: dict[str, Any] = {"type": stype}
 
     if "description" in schema:
