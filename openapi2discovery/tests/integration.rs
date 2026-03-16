@@ -74,7 +74,10 @@ fn nested_three_levels() {
     assert!(users.methods.contains_key("list"));
     assert!(users.methods.contains_key("get"));
 
-    let posts = users.resources.get("posts").expect("missing posts under users");
+    let posts = users
+        .resources
+        .get("posts")
+        .expect("missing posts under users");
     assert!(posts.methods.contains_key("list"));
     assert!(posts.methods.contains_key("create"));
     assert!(posts.methods.contains_key("get"));
@@ -92,16 +95,16 @@ fn nested_three_levels() {
 #[test]
 fn nested_method_ids_are_dotted() {
     let doc = load("tests/fixtures/nested.json");
-    let get_comment = &doc.resources["users"].resources["posts"].resources["comments"]
-        .methods["get"];
+    let get_comment =
+        &doc.resources["users"].resources["posts"].resources["comments"].methods["get"];
     assert_eq!(get_comment.id, "blog-api.users.posts.comments.get");
 }
 
 #[test]
 fn nested_parameter_order_follows_url() {
     let doc = load("tests/fixtures/nested.json");
-    let delete_comment = &doc.resources["users"].resources["posts"].resources["comments"]
-        .methods["delete"];
+    let delete_comment =
+        &doc.resources["users"].resources["posts"].resources["comments"].methods["delete"];
     assert_eq!(
         delete_comment.parameter_order,
         vec!["userId", "postId", "commentId"]

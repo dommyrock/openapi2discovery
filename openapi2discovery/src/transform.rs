@@ -75,7 +75,11 @@ fn simplify_refs(value: serde_json::Value) -> serde_json::Value {
                     map.insert("$ref".into(), serde_json::Value::String(name.into()));
                 }
             }
-            serde_json::Value::Object(map.into_iter().map(|(k, v)| (k, simplify_refs(v))).collect())
+            serde_json::Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, simplify_refs(v)))
+                    .collect(),
+            )
         }
         serde_json::Value::Array(arr) => {
             serde_json::Value::Array(arr.into_iter().map(simplify_refs).collect())
@@ -202,15 +206,17 @@ fn build_method(ctx: &MethodContext) -> DiscoveryMethod {
     for seg in ctx.segments {
         if let Segment::Param(name) = seg {
             parameter_order.push(name.clone());
-            parameters.entry(name.clone()).or_insert_with(|| DiscoveryParameter {
-                param_type: "string".into(),
-                required: true,
-                location: "path".into(),
-                description: None,
-                format: None,
-                enum_values: None,
-                default: None,
-            });
+            parameters
+                .entry(name.clone())
+                .or_insert_with(|| DiscoveryParameter {
+                    param_type: "string".into(),
+                    required: true,
+                    location: "path".into(),
+                    description: None,
+                    format: None,
+                    enum_values: None,
+                    default: None,
+                });
         }
     }
 
@@ -225,7 +231,12 @@ fn build_method(ctx: &MethodContext) -> DiscoveryMethod {
 
     let response = [200, 201]
         .iter()
-        .find_map(|&code| ctx.operation.responses.responses.get(&StatusCode::Code(code)))
+        .find_map(|&code| {
+            ctx.operation
+                .responses
+                .responses
+                .get(&StatusCode::Code(code))
+        })
         .and_then(|r| ctx.resolver.resolve_response(r))
         .and_then(|r| r.content.get("application/json"))
         .and_then(|media| media.schema.as_ref())
@@ -235,7 +246,11 @@ fn build_method(ctx: &MethodContext) -> DiscoveryMethod {
         id: ctx.id.into(),
         http_method: ctx.verb.into(),
         path: ctx.path.strip_prefix('/').unwrap_or(ctx.path).into(),
-        description: ctx.operation.description.clone().or_else(|| ctx.operation.summary.clone()),
+        description: ctx
+            .operation
+            .description
+            .clone()
+            .or_else(|| ctx.operation.summary.clone()),
         parameters,
         parameter_order,
         request,
@@ -271,7 +286,9 @@ fn add_parameter(param: &Parameter, out: &mut BTreeMap<String, DiscoveryParamete
 // Type extraction helpers
 // ---------------------------------------------------------------------------
 
-fn extract_type_info(pf: &ParameterSchemaOrContent) -> (String, Option<String>, Option<Vec<String>>) {
+fn extract_type_info(
+    pf: &ParameterSchemaOrContent,
+) -> (String, Option<String>, Option<Vec<String>>) {
     match pf {
         ParameterSchemaOrContent::Schema(ReferenceOr::Item(schema)) => {
             type_from_schema_kind(&schema.schema_kind)

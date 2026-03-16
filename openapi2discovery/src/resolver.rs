@@ -22,7 +22,9 @@ macro_rules! resolve_method {
         {
             match r {
                 ReferenceOr::Item(item) => Some(item),
-                ReferenceOr::Reference { reference } => self.$field.get(ref_name(reference)).copied(),
+                ReferenceOr::Reference { reference } => {
+                    self.$field.get(ref_name(reference)).copied()
+                }
             }
         }
     };
