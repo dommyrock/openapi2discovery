@@ -135,6 +135,8 @@ The [gws CLI](https://github.com/googleworkspace/cli) is a Rust/clap 4 binary th
 
 Note: `gws` does **not** implement MCP as an in-process server. Instead it relies on convention-based integration — structured JSON output, consistent error format, `--dry-run`, and skill files make it a natural fit for agent tool-use without implementing the MCP protocol directly.
 
+---
+
 ### Extras — Authentication
 
 | File | Role |
@@ -168,3 +170,5 @@ Note: `gws` does **not** implement MCP as an in-process server. Instead it relie
 | `CONTEXT.md` | The agent context document — rules, core syntax, key flags, field mask guidance, pagination patterns. In `gws` this is Gemini-specific; **our version must be provider-agnostic** (no model-specific reasoning instructions, no provider-specific tool-use syntax) |
 | `gemini-extension.json` | Registers the context file with Gemini CLI. We would need equivalent registration for Claude (`CLAUDE.md`), Codex (`.codex/`), and any other agent surface — or a single `CONTEXT.md` that all providers can consume |
 | `AGENTS.md` | Contributor-facing architecture and security guide (separate from the agent-facing context file) |
+
+See: [cli-usage.md](gws-cli-usage.md) & [our-cli-usage.md](our-cli-usage.md)(private) for extracted CLI usage patterns from agents and multi-step workflows.
