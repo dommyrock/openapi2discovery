@@ -4,6 +4,8 @@ use crate::tree::{ends_with_param, parse_segments, resource_chain, Segment};
 use openapiv3::*;
 use std::collections::BTreeMap;
 
+/// Walk every path in the OpenAPI spec and build a nested resource tree
+/// mapping `["users", "files"]` → `resources.users.resources.files.methods.*`.
 pub(crate) fn build_resources(
     spec: &OpenAPI,
     resolver: &RefResolver,
@@ -53,6 +55,8 @@ pub(crate) fn build_resources(
     root
 }
 
+/// Map an HTTP verb to a Discovery method name (`GET` collection → `list`,
+/// `GET` item → `get`, `POST` → `create`, etc.). Falls back to `operationId`.
 fn method_name_for(verb: &str, is_item: bool, op: &Operation) -> String {
     match (verb, is_item) {
         ("GET", false) => return "list".into(),
@@ -68,6 +72,7 @@ fn method_name_for(verb: &str, is_item: bool, op: &Operation) -> String {
         .unwrap_or_else(|| verb.to_lowercase())
 }
 
+/// Recursively walk the resource `chain` and insert the method at the leaf.
 fn insert_method(
     resources: &mut BTreeMap<String, DiscoveryResource>,
     chain: &[String],
@@ -85,6 +90,7 @@ fn insert_method(
     }
 }
 
+/// Borrowed context passed into [`build_method`] to avoid long parameter lists.
 struct MethodContext<'a> {
     id: &'a str,
     verb: &'a str,
@@ -96,6 +102,8 @@ struct MethodContext<'a> {
     spec: &'a OpenAPI,
 }
 
+/// Assemble a single [`DiscoveryMethod`] from an OpenAPI operation,
+/// resolving parameters, request/response refs, and security scopes.
 fn build_method(ctx: &MethodContext) -> DiscoveryMethod {
     let mut parameters = BTreeMap::new();
 
@@ -167,6 +175,8 @@ fn build_method(ctx: &MethodContext) -> DiscoveryMethod {
     }
 }
 
+/// Convert an OpenAPI query/path parameter into a [`DiscoveryParameter`].
+/// Header and cookie parameters are skipped.
 fn add_parameter(param: &Parameter, out: &mut BTreeMap<String, DiscoveryParameter>) {
     let (data, location) = match param {
         Parameter::Query { parameter_data, .. } => (parameter_data, "query"),
@@ -190,6 +200,7 @@ fn add_parameter(param: &Parameter, out: &mut BTreeMap<String, DiscoveryParamete
     );
 }
 
+/// Extract `(type, format, enum_values)` from a parameter's schema-or-content.
 fn extract_type_info(
     pf: &ParameterSchemaOrContent,
 ) -> (String, Option<String>, Option<Vec<String>>) {
@@ -201,6 +212,7 @@ fn extract_type_info(
     }
 }
 
+/// Map an OpenAPI `SchemaKind` to a Discovery `(type, format, enum_values)` triple.
 fn type_from_schema_kind(kind: &SchemaKind) -> (String, Option<String>, Option<Vec<String>>) {
     let SchemaKind::Type(t) = kind else {
         return ("string".into(), None, None);
@@ -224,6 +236,7 @@ fn type_from_schema_kind(kind: &SchemaKind) -> (String, Option<String>, Option<V
     }
 }
 
+/// Render a `VariantOrUnknownOrEmpty` format field as a lowercase string.
 fn format_string<T: std::fmt::Debug>(v: &VariantOrUnknownOrEmpty<T>) -> Option<String> {
     match v {
         VariantOrUnknownOrEmpty::Item(f) => Some(format!("{f:?}").to_lowercase()),
@@ -232,6 +245,7 @@ fn format_string<T: std::fmt::Debug>(v: &VariantOrUnknownOrEmpty<T>) -> Option<S
     }
 }
 
+/// Pull out a `$ref` name from a schema reference, unwrapping single-entry `allOf` wrappers.
 fn extract_schema_ref(schema: &ReferenceOr<Schema>) -> Option<SchemaRef> {
     match schema {
         ReferenceOr::Reference { reference } => Some(SchemaRef {
@@ -244,6 +258,8 @@ fn extract_schema_ref(schema: &ReferenceOr<Schema>) -> Option<SchemaRef> {
     }
 }
 
+/// Collect OAuth scope strings from the operation's security requirements,
+/// falling back to the spec-level security if the operation has none.
 fn extract_scopes(operation: &Operation, spec: &OpenAPI) -> Vec<String> {
     let security = operation.security.as_ref().or(spec.security.as_ref());
     security

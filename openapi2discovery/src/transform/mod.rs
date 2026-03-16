@@ -43,6 +43,7 @@ pub fn transform(
     }
 }
 
+/// Lowercase a title and join words with hyphens: `"My Cool API"` → `"my-cool-api"`.
 fn slugify(s: &str) -> String {
     s.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
