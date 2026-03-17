@@ -54,3 +54,8 @@ cat openapi.json | python openapi_to_discovery.py - | jq .
 3. Map HTTP verbs to semantic method names (`GET` collection → `list`, `GET` item → `get`, `POST` → `create`, etc.)
 4. Lift `components.schemas` to top-level and simplify `$ref` paths
 5. Output a Discovery-style JSON document with enough info to reconstruct valid HTTP requests
+
+> [!NOTE]
+`CONTEXT.md` is the universal payload — the single provider-agnostic document that describes the tool. 
+The registration files are thin per-provider wrappers that point to it. 
+That's why we wrote our-CONTEXT.md to be model-neutral.

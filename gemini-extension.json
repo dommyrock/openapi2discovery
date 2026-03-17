@@ -1,0 +1,6 @@
+{
+  "name": "analyzer-cli",
+  "version": "0.1.0",
+  "description": "CLI tool for firmware and software image security analysis, dynamically generated from a Discovery Document.",
+  "contextFileName": "our-CONTEXT.md"
+}
